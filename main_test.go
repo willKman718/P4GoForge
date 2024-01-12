@@ -32,22 +32,39 @@ var loadBroker = true
 var BrokerDebug = false
 var loadCheckPoint = false
 
-// TODO Auto find checkpoint and journal
-var p4payloadDir = "/home/will/P4GoForge/p4payload"
-var checkpointPrefix = "zapload-payload"
+var startDir string
+var binDir string
+var p4payloadDir string
+var checkPointfile string
+var newPath string
 
-var checkPointfile = "zaplock-payload.ckp.8"
+func init() {
+	// Initialize global variables here
+	wd, err := os.Getwd()
+	if err != nil {
+		fmt.Println("Error getting current working directory:", err)
+		os.Exit(1)
+	}
 
-const startDir = "/home/will/P4GoForge/tmp"
-const binDir = "/home/will/P4GoForge/bin"
-const serverPort = "1999"
-const brokerPort = "1666"
+	startDir = filepath.Join(wd, "tmp")
+	binDir = filepath.Join(wd, "bin")
+	p4payloadDir = filepath.Join(wd, "p4payload")
+	checkPointfile = "zaplock-payload.ckp.8"
+
+	originalPath := os.Getenv("PATH")
+	newPath := fmt.Sprintf("%s:%s", originalPath, binDir)
+	os.Setenv("PATH", newPath)
+
+	if err := checkBinaries(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+}
 
 type P4Test struct {
 	startDir           string
 	binDir             string
 	p4payloadDir       string
-	checkpointPrefix   string
 	checkPointfile     string
 	p4d                string
 	p4                 string
@@ -69,7 +86,6 @@ type P4Test struct {
 }
 
 func MakeP4Test(startDir string) *P4Test {
-
 	os.Setenv("P4CONFIG", ".p4config")
 	p4t := &P4Test{
 		startDir:     startDir,
@@ -91,7 +107,6 @@ func MakeP4Test(startDir string) *P4Test {
 	p4t.p4 = filepath.Join(p4t.binDir, "p4")
 	p4t.p4broker = filepath.Join(p4t.binDir, "p4broker")
 	p4t.bport = fmt.Sprintf("rsh:%s -c %s -q", p4t.p4broker, p4t.brokerRoot+"/p4broker.cfg")
-	//fmt.Println(coloredOutput(colorRed, p4t.bport))
 	p4t.port = fmt.Sprintf("rsh:%s -r %s -L %s", p4t.p4d, p4t.serverRoot, p4t.serverLog)
 	os.Chdir(p4t.clientRoot)
 
@@ -104,10 +119,8 @@ func setupTestEnv(t *testing.T) *P4Test {
 	p4Test := MakeP4Test(startDir)
 
 	// Now set the environment variables using p4Test
-	originalPath := os.Getenv("PATH")
-	newPath := fmt.Sprintf("%s:%s", originalPath, p4Test.binDir)
-	os.Setenv("PATH", newPath)
-	setP4Config(DefaultP4Config, p4Test, newPath)
+
+	setP4Config(DefaultP4Config, p4Test)
 	t.Log("Test environment set up successfully")
 
 	if err := startP4dDaemon(p4Test); err != nil {
@@ -294,26 +307,3 @@ func TestP4OGZaplockCommands(t *testing.T) {
 
 	fmt.Println("Output of p4 commands:\n", output)
 }
-
-/*
-
-	func TestP4ZapLockCommandBroker(t *testing.T) {
-		originalPath := os.Getenv("PATH")
-		p4Test := setupTestEnv(t)
-		defer teardownTestEnv(t, p4Test, originalPath)
-		// Temporarily change P4PORT to broker's port for this test
-		originalPort := os.Getenv("P4PORT")
-		defer os.Setenv("P4PORT", originalPort)
-
-		os.Setenv("P4PORT", p4Test.bport)
-		formattedString := fmt.Sprintf("P4PORT=%v", p4Test.bport)
-		fmt.Println(coloredOutput(colorBlue, formattedString))
-
-		output, err := P4Command(true, false, "zaplock", "-h")
-		if err != nil {
-			t.Fatalf("P4Command failed: %v", err)
-		}
-
-		fmt.Println(coloredOutput(colorBlue, "Output of p4 info (Broker):\n"+output))
-	}
-*/

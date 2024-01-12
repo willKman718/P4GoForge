@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -31,7 +30,7 @@ func P4Commands(p4Test *P4Test, commands []string, configType P4ConfigType) (str
 	}
 
 	// Set P4 configuration
-	setP4Config(configType, p4Test, os.Getenv("PATH"))
+	setP4Config(configType, p4Test)
 
 	for _, cmdString := range commands {
 		args := strings.Fields(cmdString) // Split the command string into arguments
@@ -61,7 +60,7 @@ func P4Commands(p4Test *P4Test, commands []string, configType P4ConfigType) (str
 func P4dCommand(useFullPath bool, args ...string) (string, error) {
 	var cmd *exec.Cmd
 	if useFullPath {
-		p4FullPath := filepath.Join("/home/will/P4GoForge/bin", "p4d")
+		p4FullPath := filepath.Join(binDir, "p4d")
 		cmd = exec.Command(p4FullPath, args...)
 	} else {
 		cmd = exec.Command("p4d", args...)

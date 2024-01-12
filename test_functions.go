@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 )
@@ -35,7 +36,19 @@ func writeToFile(fname, contents string) error {
 	err = f.Close()
 	return err
 }
+func checkBinaries() error {
+	binaries := []string{"p4", "p4d", "p4broker"}
 
+	for _, bin := range binaries {
+		path, err := exec.LookPath(bin)
+		if err != nil {
+			return fmt.Errorf(colorRed+"Required executable '%s' not found in PATH"+colorReset, bin)
+		}
+		fmt.Printf(colorGreen+"Found: %s -> %s\n"+colorReset, bin, path)
+	}
+
+	return nil
+}
 func (p4t *P4Test) ensureDirectories() {
 	for _, d := range []string{p4t.serverRoot, p4t.brokerRoot, p4t.clientRoot} {
 		err := os.MkdirAll(d, 0777)
@@ -70,10 +83,10 @@ const (
 )
 
 // Function to set different Perforce configurations
-func setP4Config(configType P4ConfigType, p4Test *P4Test, newPath string) {
+func setP4Config(configType P4ConfigType, p4Test *P4Test) {
 	switch configType {
 	case DefaultP4Config:
-		os.Setenv("PATH", newPath)
+		//os.Setenv("PATH", newPath)
 		os.Setenv("P4CONFIG", ".p4config")
 		os.Setenv("P4ROOT", p4Test.serverRoot)
 		os.Setenv("P4LOG", p4Test.serverLog)
