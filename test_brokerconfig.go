@@ -1,8 +1,8 @@
 package main
 
 import (
-	"html/template"
 	"os"
+	"text/template"
 )
 
 type BrokerConfig struct {

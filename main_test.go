@@ -17,6 +17,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -55,6 +56,7 @@ type P4Test struct {
 	serverLog        string
 	brokerRoot       string
 	clientRoot       string
+	p4Passwd         string
 	p4dProcess       *os.Process
 	p4brokerProcess  *os.Process
 }
@@ -77,17 +79,19 @@ func MakeP4Test(startDir string) *P4Test {
 	p4t.brokerRoot = filepath.Join(p4t.testRoot, "broker")
 	p4t.clientRoot = filepath.Join(p4t.testRoot, "client")
 	p4t.checkPointfile = filepath.Join(p4t.p4payloadDir, "/", checkPointfile)
-
+	p4t.p4Passwd = "perforce"
 	p4t.ensureDirectories()
 	p4t.p4d = filepath.Join(p4t.binDir, "p4d")
 	p4t.p4 = filepath.Join(p4t.binDir, "p4")
 	p4t.p4broker = filepath.Join(p4t.binDir, "p4broker")
-	p4t.port = "localhost:" + serverPort
-	p4t.bport = "localhost:" + brokerPort
-	//p4t.port = fmt.Sprintf("rsh:%s -r \"%s\" -L log -vserver=3 -i", p4t.p4d, p4t.serverRoot)
+	//p4t.port = "localhost:" + serverPort
+
+	//p4t.bport = "localhost:" + brokerPort
+	p4t.bport = fmt.Sprintf("rsh:%s -c %s -q", p4t.p4broker, p4t.brokerRoot+"/p4broker.cfg")
+	fmt.Println(coloredOutput(colorRed, p4t.bport))
+	p4t.port = fmt.Sprintf("rsh:%s -r %s -L %s", p4t.p4d, p4t.serverRoot, p4t.serverLog)
 	os.Chdir(p4t.clientRoot)
-	p4config := filepath.Join(p4t.startDir, os.Getenv("P4CONFIG"))
-	writeToFile(p4config, fmt.Sprintf("P4PORT=%s", p4t.port))
+
 	return p4t
 }
 
@@ -105,6 +109,8 @@ func setupTestEnv(t *testing.T) *P4Test {
 	os.Setenv("P4ROOT", p4Test.serverRoot)
 	os.Setenv("P4LOG", p4Test.serverLog)
 	os.Setenv("P4PORT", p4Test.port)
+	os.Setenv("P4PASSWD", p4Test.p4Passwd)
+	//os.Setenv("P4PORT", "1")
 
 	t.Log("Test environment set up successfully")
 
@@ -113,10 +119,17 @@ func setupTestEnv(t *testing.T) *P4Test {
 	}
 	t.Log("p4d started successfully")
 
+	rshp4dCommand := fmt.Sprintf(`"rsh:%s -r %s -L %s -d"`, p4Test.p4d, p4Test.serverRoot, p4Test.serverLog)
+	rshp4brokerCommand := fmt.Sprintf(`"rsh:%s -c %s -d"`, p4Test.p4broker, p4Test.brokerRoot+"/p4broker.cfg")
+
 	// BROKER STUFF
+
 	brokerConfig := BrokerConfig{
-		TargetPort:  serverPort,
-		ListenPort:  brokerPort,
+		TargetPort: rshp4dCommand, // Updated to use rsh
+
+		//ListenPort:  brokerPort,
+		ListenPort: rshp4brokerCommand,
+
 		Directory:   binDir,
 		Logfile:     p4Test.brokerRoot + "/p4broker.log",
 		AdminName:   "Helix Core Admins",
@@ -155,49 +168,54 @@ func startP4dDaemon(p4t *P4Test) error {
 	}
 	fmt.Println("Database updated successfully.")
 
-	// Start p4d as a daemon
-	daemonOutput, err := P4dCommand(true, "-r", p4t.serverRoot, "-L", p4t.serverLog, "-p", serverPort, "-vserver=3", "-d", "--pid-file")
-	if err != nil {
+	// Start p4d using rsh
+	p4dCmd := exec.Command(filepath.Join(p4t.binDir, "p4d"), "-r", p4t.serverRoot, "-L", p4t.serverLog, "-vserver=3 -d")
+	if err := p4dCmd.Start(); err != nil {
 		return fmt.Errorf("failed to start p4d: %v", err)
 	}
-	fmt.Println(daemonOutput)
 
+	p4t.p4dProcess = p4dCmd.Process
 	return nil
 }
 
 func startP4broker(p4t *P4Test) error {
-	brokerConfig := p4t.brokerRoot + "/p4broker.cfg"
+	// Construct the command
+	rshCommand := fmt.Sprintf("%s -c %s -d", p4t.p4broker, p4t.brokerRoot+"/p4broker.cfg")
 
-	p4brokerCmd := exec.Command(filepath.Join(p4t.binDir, "p4broker"), "-c", brokerConfig, "-d")
-	// Uncomment the next line to see the command being run, for debugging
-	//fmt.Printf("Starting p4broker(%v): %v\n", brokerPort, p4brokerCmd)
+	// Split the command into executable and arguments
+	cmdParts := strings.Fields(rshCommand)
+	cmd := exec.Command(cmdParts[0], cmdParts[1:]...)
 
-	if err := p4brokerCmd.Start(); err != nil {
-		return fmt.Errorf("failed to start p4broker: %v", err)
+	// Capture output (optional, for debugging)
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start p4broker with rsh: %v", err)
+	}
+
+	// Wait and capture output
+	err := cmd.Wait()
+	stdoutStr, stderrStr := stdoutBuf.String(), stderrBuf.String()
+	fmt.Printf("p4broker STDOUT:\n%s\n", stdoutStr)
+	fmt.Printf("p4broker STDERR:\n%s\n", stderrStr)
+
+	// Error handling
+	if err != nil {
+		return fmt.Errorf("p4broker command failed: %v", err)
 	}
 
 	// Store the process for later cleanup
-	p4t.p4brokerProcess = p4brokerCmd.Process
-
+	p4t.p4brokerProcess = cmd.Process
 	return nil
 }
 
 func teardownTestEnv(t *testing.T, p4t *P4Test, originalPath string) {
-	// Read the PID from the server.pid file
-	pidFile := filepath.Join(p4t.serverRoot, "server.pid")
-	pidData, err := os.ReadFile(pidFile)
-	if err != nil {
-		t.Logf("Failed to read PID file: %v", err)
-	} else {
-		pid := strings.TrimSpace(string(pidData))
-		// Kill the p4d daemon using its PID
-		killCmd := exec.Command("kill", pid)
-		if err := killCmd.Run(); err != nil {
-			t.Logf("Failed to kill p4d process (PID: %s): %v", pid, err)
-		} else {
-			fmt.Printf("p4d process killed successfully (PID: %s)\n", pid)
-		}
-	}
+	// Since p4d is started with rsh and tied to the test process,
+	// it should terminate automatically with the test.
+	// If there is a need to explicitly stop it, additional logic will be needed.
 
 	// Kill the p4broker process
 	if p4t.p4brokerProcess != nil {
@@ -227,6 +245,7 @@ func withBrokerEnvVar(name, tempValue string, testFunc func()) {
 	testFunc()
 }
 func TestP4VersionCommand(t *testing.T) {
+	fmt.Println(coloredOutput(colorPurple, "TestP4VersionCommand"))
 	originalPath := os.Getenv("PATH")
 	p4Test := setupTestEnv(t)
 	defer teardownTestEnv(t, p4Test, originalPath)
@@ -241,6 +260,7 @@ func TestP4VersionCommand(t *testing.T) {
 }
 
 func TestP4SetCommand(t *testing.T) {
+	fmt.Println(coloredOutput(colorPurple, "TestP4SetCommand"))
 	originalPath := os.Getenv("PATH")
 	p4Test := setupTestEnv(t)
 	defer teardownTestEnv(t, p4Test, originalPath)
@@ -252,6 +272,7 @@ func TestP4SetCommand(t *testing.T) {
 }
 
 func TestP4InfoCommand(t *testing.T) {
+	fmt.Println(coloredOutput(colorPurple, "TestP4InfoCommand"))
 	originalPath := os.Getenv("PATH")
 	p4Test := setupTestEnv(t)
 	defer teardownTestEnv(t, p4Test, originalPath)
@@ -263,6 +284,7 @@ func TestP4InfoCommand(t *testing.T) {
 }
 
 func TestP4DepotsCommand(t *testing.T) {
+	fmt.Println(coloredOutput(colorPurple, "TestP4DepotsCommand"))
 	originalPath := os.Getenv("PATH")
 	p4Test := setupTestEnv(t)
 	defer teardownTestEnv(t, p4Test, originalPath)
@@ -274,6 +296,8 @@ func TestP4DepotsCommand(t *testing.T) {
 }
 
 func TestP4InfoCommandBroker(t *testing.T) {
+	fmt.Println(coloredOutput(colorPurple, "TestP4InfoCommandBroker"))
+
 	originalPath := os.Getenv("PATH")
 	p4Test := setupTestEnv(t)
 	defer teardownTestEnv(t, p4Test, originalPath)
@@ -281,7 +305,10 @@ func TestP4InfoCommandBroker(t *testing.T) {
 	originalPort := os.Getenv("P4PORT")
 	defer os.Setenv("P4PORT", originalPort)
 
-	os.Setenv("P4PORT", brokerPort)
+	//os.Setenv("P4PORT", brokerPort)
+	os.Setenv("P4PORT", p4Test.bport)
+	formattedString := fmt.Sprintf("P4PORT=%v", p4Test.bport)
+	fmt.Println(coloredOutput(colorBlue, formattedString))
 
 	output, err := P4Command(true, false, "info")
 	if err != nil {
@@ -291,26 +318,6 @@ func TestP4InfoCommandBroker(t *testing.T) {
 	fmt.Println(coloredOutput(colorBlue, "Output of p4 info (Broker):\n"+output))
 }
 
-/*
-// TODO BUILD THIS BETTER Below
-
-	func TestP4InfoCommandBroker2(t *testing.T) {
-		originalPath := os.Getenv("PATH")
-		p4Test := setupTestEnv(t)
-		defer teardownTestEnv(t, p4Test, originalPath)
-		originalPort := os.Getenv("P4PORT")
-		defer os.Setenv("P4PORT", originalPort)
-
-		os.Setenv("P4PORT", brokerPort)
-
-		output, err := P4Command(true, false, "info")
-		if err != nil {
-			t.Fatalf("P4Command failed: %v", err)
-		}
-
-		fmt.Println(coloredOutput(colorBlue, "Output of p4 info (Broker):\n"+output))
-	}
-*/
 func TestP4ZapLockCommandBroker(t *testing.T) {
 	originalPath := os.Getenv("PATH")
 	p4Test := setupTestEnv(t)
@@ -319,7 +326,9 @@ func TestP4ZapLockCommandBroker(t *testing.T) {
 	originalPort := os.Getenv("P4PORT")
 	defer os.Setenv("P4PORT", originalPort)
 
-	os.Setenv("P4PORT", brokerPort)
+	os.Setenv("P4PORT", p4Test.bport)
+	formattedString := fmt.Sprintf("P4PORT=%v", p4Test.bport)
+	fmt.Println(coloredOutput(colorBlue, formattedString))
 
 	output, err := P4Command(true, false, "zaplock", "-h")
 	if err != nil {
