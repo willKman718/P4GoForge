@@ -141,7 +141,41 @@ func setupTestEnv(t *testing.T) *P4Test {
 	t.Log("p4d started successfully")
 
 	p4Test.rshp4dCommand = fmt.Sprintf(`"rsh:%s -r %s -L %s -d -q"`, p4Test.p4d, p4Test.serverRoot, p4Test.serverLog)
+	////// CREATE USERS
+	// Create Users
 
+	users := []string{"user1", "user2", "user3", "user4", "user5"}
+	for _, user := range users {
+		if err := createUser(p4Test, user); err != nil {
+			t.Fatalf("Error creating user %s: %v", user, err)
+		}
+		if err := createWorkspace(p4Test, user); err != nil {
+			t.Fatalf("Error creating user %s: %v", user, err)
+		}
+	}
+	// Create the group and add specified users to it.
+	// Define the users to be added to the AuthorizedUser-ZapLock group
+	authorizedUsers := []string{"user1", "user3", "user5"}
+
+	// Create the group and add specified users to it
+	if err := createGroup(p4Test, "AuthorizedUser-ZapLock", authorizedUsers); err != nil {
+		t.Fatalf("Error creating group AuthorizedUser-ZapLock: %v", err)
+	}
+	/*
+		users := []string{"user1", "user2", "user3", "user4", "user5"}
+		for _, user := range users {
+			if err := createUser(p4Test, user); err != nil {
+				t.Fatalf("Error creating user %s: %v", user, err)
+			}
+		}
+		/*
+			/// Create group and add users
+			// Create Group and Add Users
+			authorizedUsers := []string{"user1", "user3", "user5"}
+			if err := createGroup(p4Test, "AuthorizedUser-ZapLock", authorizedUsers); err != nil {
+				t.Fatalf("Error creating AuthorizedUser-ZapLock group: %v", err)
+			}
+	*/
 	if loadBroker {
 		if err := setupP4Broker(p4Test); err != nil {
 			t.Fatalf("Broker setup failed: %v", err)
@@ -149,6 +183,7 @@ func setupTestEnv(t *testing.T) *P4Test {
 		t.Log("p4broker started successfully")
 	}
 	return p4Test
+
 }
 
 func startP4dDaemon(p4t *P4Test) error {
@@ -219,8 +254,8 @@ func startP4broker(p4t *P4Test) error {
 
 func teardownTestEnv(t *testing.T, p4t *P4Test) {
 	// Remove the test directory
-	rmCmd := fmt.Sprintf("rm -rf %s*", p4t.testRoot)
-	//rmCmd := fmt.Sprintf("echo WOOF WOOF")
+	//rmCmd := fmt.Sprintf("rm -rf %s*", p4t.testRoot)
+	rmCmd := fmt.Sprintf("echo WOOF WOOF")
 	if err := exec.Command("bash", "-c", rmCmd).Run(); err != nil {
 		t.Logf("Failed to remove test directory: %v", err)
 	} else {
@@ -243,6 +278,8 @@ func TestP4OGCommands(t *testing.T) {
 		"configure show allservers",
 		"groups",
 		"users -a",
+		"clients",
+		"group -o AuthorizedUser-ZapLock",
 	}
 
 	output, err := P4Commands(p4Test, commands, DefaultP4Config)
@@ -265,6 +302,8 @@ func TestP4OGBrokerCommands(t *testing.T) {
 		"configure show allservers",
 		"groups",
 		"users -a",
+		"p4 clients",
+		"p4 client -o user1_ws",
 	}
 
 	output, err := P4Commands(p4Test, commands, BrokerP4Config)
@@ -283,6 +322,24 @@ func TestP4OGZaplockCommands(t *testing.T) {
 
 	commands := []string{
 		"zaplock -h",
+	}
+
+	output, err := P4Commands(p4Test, commands, BrokerP4Config)
+	if err != nil {
+		t.Fatalf("Error executing p4 commands: %v", err)
+	}
+
+	fmt.Println("Output of p4 commands:\n", output)
+}
+func TestP4OGZaplockCCommands(t *testing.T) {
+	funcName := getFunctionName()
+	fmt.Println(coloredOutput(colorPurple, funcName))
+
+	p4Test := setupTestEnv(t)        // Setup test environment
+	defer teardownTestEnv(t, p4Test) // Teardown test environment
+
+	commands := []string{
+		"zaplock -c 1 -M",
 	}
 
 	output, err := P4Commands(p4Test, commands, BrokerP4Config)

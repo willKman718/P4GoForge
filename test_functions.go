@@ -36,6 +36,21 @@ func writeToFile(fname, contents string) error {
 	err = f.Close()
 	return err
 }
+func appendToFile(fname, content string) error {
+	// Open the file in append mode. Create the file if it doesn't exist.
+	f, err := os.OpenFile(fname, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	// Write the content to the file.
+	if _, err := f.WriteString(content); err != nil {
+		return err
+	}
+
+	return nil
+}
 func checkBinaries() error {
 	binaries := []string{"p4", "p4d", "p4broker"}
 
