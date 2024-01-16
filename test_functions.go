@@ -131,6 +131,7 @@ func logEnvironmentVariables(title string) {
 		}
 	}
 }
+
 func isDirectoryEmpty(dir string) (bool, error) {
 	f, err := os.Open(dir)
 	if err != nil {

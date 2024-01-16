@@ -305,34 +305,23 @@ func createDepotFiles(p4Test *P4Test, username string, files map[string]string) 
 	return nil
 }
 func checkoutAndLockFiles(p4Test *P4Test, username string, filesToLock []string) error {
-	workspaceName := username + "_ws"
-	//clientRoot := filepath.Join(p4Test.clientRoot, username)
-
-	// Ensure the current workspace is set correctly
-	cmd := exec.Command("p4", "set", "P4CLIENT="+workspaceName)
-	if _, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to set P4CLIENT for user %s: %v", username, err)
+	// Create a changelist for the user
+	changelistNumber, err := createChangelist(p4Test, username)
+	if err != nil {
+		return fmt.Errorf("failed to create changelist for user %s: %v", username, err)
 	}
 
-	// Change to the user directory
-	//os.Chdir(clientRoot)
-
-	// Checkout and lock the files
+	// Checkout and lock files
 	for _, file := range filesToLock {
-		// Edit (check out) the file
-		cmd = exec.Command("p4", "edit", file)
-		if _, err := cmd.CombinedOutput(); err != nil {
+		if err := p4EditFile(file, changelistNumber); err != nil {
 			return fmt.Errorf("failed to check out file %s for user %s: %v", file, username, err)
 		}
 
-		// Lock the file
-		cmd = exec.Command("p4", "lock", file)
-		if _, err := cmd.CombinedOutput(); err != nil {
+		if err := p4LockFile(file); err != nil {
 			return fmt.Errorf("failed to lock file %s for user %s: %v", file, username, err)
 		}
 	}
 
-	fmt.Printf("User %s checked out and locked files: %v\n", username, filesToLock)
 	return nil
 }
 func syncUserWorkspace(p4Test *P4Test, username string) error {
@@ -348,5 +337,129 @@ func syncUserWorkspace(p4Test *P4Test, username string) error {
 	}
 
 	fmt.Printf("Workspace synced for user %s\n", username)
+	return nil
+}
+
+func createChangelist(p4Test *P4Test, username string) (string, error) {
+	// Set the P4USER environment variable
+	os.Setenv("P4USER", username)
+
+	// Generate a path for the temporary changelist specification file
+	tempChangelistSpecFile := filepath.Join(p4Test.clientRoot, "temp_changelist_spec.txt")
+
+	// Create a new changelist and write it to the temporary file
+	cmdString := fmt.Sprintf("p4 change -o > %s", tempChangelistSpecFile)
+	cmd := exec.Command("bash", "-c", cmdString)
+	if _, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("failed to output changelist form: %v", err)
+	}
+
+	// Read contents of the tempChangelistSpecFile
+	clSpecData, err := os.ReadFile(tempChangelistSpecFile)
+	if err != nil {
+		return "", fmt.Errorf("failed to read changelist spec file: %v", err)
+	}
+
+	// Modify the changelist specification
+	var modifiedLines []string
+	scanner := bufio.NewScanner(strings.NewReader(string(clSpecData)))
+	descriptionFound := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "Description:") {
+			descriptionFound = true
+			modifiedLines = append(modifiedLines, "Description:")
+			modifiedLines = append(modifiedLines, "\tChange created by "+username)
+		} else if !descriptionFound || (descriptionFound && !strings.HasPrefix(line, "\t")) {
+			modifiedLines = append(modifiedLines, line)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("error reading changelist spec: %v", err)
+	}
+	modifiedSpec := strings.Join(modifiedLines, "\n")
+
+	// Rewrite the modified changelist specification back to the temporary file
+	if err := os.WriteFile(tempChangelistSpecFile, []byte(modifiedSpec), 0644); err != nil {
+		return "", err
+	}
+
+	// Submit the modified changelist
+	cmdString = fmt.Sprintf("p4 change -i < %s", tempChangelistSpecFile)
+	cmd = exec.Command("bash", "-c", cmdString)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to submit modified changelist: %v", err)
+	}
+
+	// Extract changelist number from the output
+	changelistNumber, err := extractChangelistNumber(string(output))
+	if err != nil {
+		return "", err
+	}
+
+	// Clean up the temporary file
+	if err := os.Remove(tempChangelistSpecFile); err != nil {
+		return "", err
+	}
+
+	return changelistNumber, nil
+}
+
+// Helper function to extract changelist number
+func extractChangelistNumber(output string) (string, error) {
+	// Split the output by spaces
+	parts := strings.Fields(output)
+
+	// Look for the word "Change" and then extract the following number
+	for i, part := range parts {
+		if part == "Change" && i+1 < len(parts) {
+			// Assuming the number is the next part
+			return parts[i+1], nil
+		}
+	}
+
+	// If no number found, return an error
+	return "", fmt.Errorf("changelist number not found in output")
+}
+
+func p4EditFile(file string, changelistNumber string) error {
+	cmd := exec.Command("p4", "edit", "-c", changelistNumber, file)
+	if _, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to edit file: %v", err)
+	}
+	return nil
+}
+func p4LockFile(file string) error {
+	cmd := exec.Command("p4", "lock", file)
+	if _, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to lock file: %v", err)
+	}
+	return nil
+}
+func checkoutFilesToChangelist(p4Test *P4Test, username string, fileName string, changelistNumber string) error {
+	// Ensure the P4CLIENT and P4USER environment variables are set
+	workspaceName := username + "_ws"
+	os.Setenv("P4CLIENT", workspaceName)
+	os.Setenv("P4USER", username)
+	clientRootFile := filepath.Join(p4Test.clientRoot, username, fileName)
+	// Construct the command string
+	cmdString := fmt.Sprintf("p4 edit -c %s %s", changelistNumber, clientRootFile)
+
+	// Print the constructed command string
+	fmt.Println("Executing command:", cmdString)
+
+	// Execute the command
+	cmd := exec.Command("bash", "-c", cmdString)
+	if _, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to check out file %s for user %s: %v", fileName, username, err)
+	}
+	// Lock the file
+	lockCmdString := fmt.Sprintf("p4 lock %s", clientRootFile)
+	fmt.Println("Executing lock command:", lockCmdString)
+	cmd = exec.Command("bash", "-c", lockCmdString)
+	if _, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to lock file %s: %v", fileName, err)
+	}
 	return nil
 }

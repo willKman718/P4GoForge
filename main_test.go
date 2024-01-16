@@ -227,33 +227,83 @@ func setupTestEnv(t *testing.T) *P4Test {
 	if err := createGroup(p4Test, "AuthorizedUser-ZapLock", authorizedUsers); err != nil {
 		t.Fatalf("Error creating group AuthorizedUser-ZapLock: %v", err)
 	}
-	filesToCreate := map[string]string{
-		"textfile1.txt":   "text+lmx",
-		"binaryfile1.bin": "binary",
-		"textfile2.txt":   "text",
-		"textfile3.txt":   "text+l",
-		"binaryfile2.bin": "binary+klm",
+
+	//TODO move this probaly
+	type FileDetails struct {
+		FileType string
+		UserName string
+	}
+	filesToCreate := map[string]FileDetails{
+		"eLOCKtextfile1.txt":   {FileType: "text+lmx", UserName: "user1"},
+		"mLOCKbinaryfile1.bin": {FileType: "binary", UserName: "user2"},
+		"mLOCKtextfile2.txt":   {FileType: "text", UserName: "user3"},
+		"eLOCKtextfile3.txt":   {FileType: "text+l", UserName: "user5"},
+		"eLOCKbinaryfile2.bin": {FileType: "binary+klm", UserName: "user5"},
 	}
 
-	if err := createDepotFiles(p4Test, "user1", filesToCreate); err != nil {
-		t.Fatalf("Error creating and adding files to depot: %v", err)
+	/*
+		filesToCreate := map[string]string{
+			"textfile1.txt":   "text+lmx",
+			"binaryfile1.bin": "binary",
+			"textfile2.txt":   "text",
+			"textfile3.txt":   "text+l",
+			"binaryfile2.bin": "binary+klm",
+		}
+	*/
+	/*
+		if err := createDepotFiles(p4Test, "user1", filesToCreate); err != nil {
+			t.Fatalf("Error creating and adding files to depot: %v", err)
+		}*/
+	for fileName, details := range filesToCreate {
+		if err := createDepotFiles(p4Test, details.UserName, map[string]string{fileName: details.FileType}); err != nil {
+			t.Fatalf("Error creating and adding file %s to depot by user %s: %v", fileName, details.UserName, err)
+		}
 	}
-	//// SYNC workspaces
 
+	// Sync workspaces and create changelists for each user
 	for _, user := range users {
 		if err := syncUserWorkspace(p4Test, user); err != nil {
 			t.Fatalf("Error syncing workspace for user %s: %v", user, err)
 		}
+
+		changelistNumber, err := createChangelist(p4Test, user)
+		if err != nil {
+			t.Fatalf("Error creating changelist for user %s: %v", user, err)
+		}
+
+		// Log or do something with the changelist number
+		fmt.Printf("Changelist for user %s created: %s\n", user, changelistNumber)
+
+		// Check out files associated with this user to their changelist
+		for fileName, details := range filesToCreate {
+			if details.UserName == user {
+				fmt.Printf("Checking out file: %s, User: %s, Changelist: %s\n", fileName, user, changelistNumber)
+				// Uncomment below line to actually execute the function after dry run
+				if err := checkoutFilesToChangelist(p4Test, user, fileName, changelistNumber); err != nil {
+					t.Fatalf("Error checking out file %s to changelist %s by user %s: %v", fileName, changelistNumber, user, err)
+				}
+			}
+		}
 	}
 
-	/*
-		filesToLock := []string{"textfile1.txt", "textfile2.txt"}
+	/*filesToLock := []string{"textfile1.txt", "textfile2.txt"}
 
-		usersToLockFiles := []string{"user2", "user4"}
-		for _, user := range usersToLockFiles {
-			if err := checkoutAndLockFiles(p4Test, user, filesToLock); err != nil {
-				t.Fatalf("Error checking out and locking files for user %s: %v", user, err)
-			}
+	usersToLockFiles := []string{"user2", "user4"}
+	for _, user := range usersToLockFiles {
+		if err := checkoutAndLockFiles(p4Test, user, filesToLock); err != nil {
+			t.Fatalf("Error checking out and locking files for user %s: %v", user, err)
+		}
+	}
+	*/
+	/*
+		errUser2 := checkoutAndLockFiles(p4Test, "user2", []string{"textfile1.txt", "textfile2.txt"})
+		if errUser2 != nil {
+			t.Fatalf("Error checking out and locking files for user2: %v", errUser2)
+		}
+
+		errUser4 := checkoutAndLockFiles(p4Test, "user4", []string{"textfile1.txt", "textfile2.txt"})
+		if errUser4 != nil {
+			t.Fatalf("Error checking out and locking files for user4: %v", errUser4)
 		}
 	*/
 	return p4Test
@@ -329,54 +379,58 @@ func startP4broker(p4t *P4Test) error {
 }
 
 func teardownTestEnv(t *testing.T, p4t *P4Test) {
-	fmt.Println(coloredOutput(colorBlue, "teardownTestEnv"))
+	fmt.Println(coloredOutput(colorRed, "teardownTestEnv"))
 	fmt.Printf("Working Dir %s\n", wd)
-	//os.Chdir(wd)
 
-	// Forcefully terminate the p4d process if it exists
+	// Terminate p4d process
 	if p4t.p4dProcess != nil {
 		if err := p4t.p4dProcess.Kill(); err != nil {
-			t.Logf("Failed to kill p4d process: %v", err)
+			fmt.Printf("Failed to kill p4d process: %v\n", err)
 		} else {
-			t.Log("p4d process terminated successfully")
+			fmt.Printf("p4d process terminated successfully\n")
 		}
 	}
 
-	// Forcefully terminate the p4broker process if it exists
+	// Terminate p4broker process
 	if p4t.p4brokerProcess != nil {
 		if err := p4t.p4brokerProcess.Kill(); err != nil {
-			t.Logf("Failed to kill p4broker process: %v", err)
+			fmt.Printf("Failed to kill p4broker process: %v\n", err)
 		} else {
-			t.Log("p4broker process terminated successfully")
-		}
-	}
-	// Reset the entire environment
-	os.Clearenv()
-	for key, value := range originalEnvVars {
-		err := os.Setenv(key, value)
-		if err != nil {
-			t.Logf("Failed to restore environment variable %s: %v", key, err)
+			fmt.Printf("p4broker process terminated successfully\n")
 		}
 	}
 
-	// Remove the test directory using verbose removal
-	rmCmd := fmt.Sprintf("rm -rvf %s", p4t.testRoot)
-	//rmCmd := fmt.Sprintf("echo WOOF WOOF")
-	fmt.Printf("Cleaning using %s\n", rmCmd)
-	if err := exec.Command("bash", "-c", rmCmd).Run(); err != nil {
-		t.Logf("Failed to remove test directory: %v", err)
-	} else {
-		t.Log("Test environment cleaned up successfully")
+	// Clear environment variables and restore original ones
+	os.Clearenv()
+	for key, value := range originalEnvVars {
+		if err := os.Setenv(key, value); err != nil {
+			fmt.Printf("Failed to restore environment variable %s: %v\n", key, err)
+		} else {
+			//fmt.Printf("Restored environment variable %s successfully\n", key)
+		}
 	}
+
+	// Remove the test directory
+	rmCmd := fmt.Sprintf("rm -rvf %s", p4t.testRoot)
+	//rmCmd := fmt.Sprintf("woof woof")
+	if err := exec.Command("bash", "-c", rmCmd).Run(); err != nil {
+		fmt.Printf("Failed to remove test directory: %v\n", err)
+	} else {
+		fmt.Printf("Test directory removed successfully\n")
+	}
+
+	// Check if test directory is empty
 	isEmpty, err := isDirectoryEmpty(p4t.testRoot)
 	if err != nil {
-		t.Logf("Error checking if test directory is empty: %v", err)
+		fmt.Printf("checking if test directory is empty or exists: %v\n", err)
 	} else if isEmpty {
-		t.Log("Test directory is empty")
+		fmt.Printf("Test directory is empty\n")
 	} else {
-		t.Log("Test directory is not empty")
+		fmt.Printf("Test directory is not empty\n")
 	}
-	logEnvironmentVariables("Environment Variables After Teardown")
+	fmt.Println(coloredOutput(colorRed, "teardownTestEnv complete"))
+	// Log environment variables after teardown
+	logEnvironmentVariables("Environment Variables After Teardown\n")
 }
 
 func buildp4dTestEnv(t *testing.T, p4t *P4Test) {
@@ -415,35 +469,6 @@ func TestP4OGCommands(t *testing.T) {
 	fmt.Println("Output of p4 commands:\n", output)
 }
 
-func TestP4OGCommands2(t *testing.T) {
-	funcName := getFunctionName()
-	fmt.Println(coloredOutput(colorPurple, funcName))
-
-	p4Test := setupTestEnv(t)        // Setup test environment
-	defer teardownTestEnv(t, p4Test) // Teardown test environment
-
-	commands := []string{
-		"info",
-		"configure show allservers",
-		"groups",
-		"users -a",
-		"clients",
-		"depots",
-		"files //...",
-		"changes",
-		"describe 1",
-		//"fstat //...",
-		//"group -o AuthorizedUser-ZapLock",
-	}
-
-	output, err := P4Commands(p4Test, commands, DefaultP4Config)
-	if err != nil {
-		t.Fatalf("Error executing p4 commands: %v", err)
-	}
-
-	fmt.Println("Output of p4 commands:\n", output)
-}
-
 func TestP4OGBrokerCommands(t *testing.T) {
 	funcName := getFunctionName()
 	fmt.Println(coloredOutput(colorPurple, funcName))
@@ -461,6 +486,7 @@ func TestP4OGBrokerCommands(t *testing.T) {
 		"files //...",
 		"changes",
 		"fstat //...",
+		"describe 1",
 		//"group -o AuthorizedUser-ZapLock",
 	}
 
@@ -472,8 +498,7 @@ func TestP4OGBrokerCommands(t *testing.T) {
 	fmt.Println("Output of p4 commands:\n", output)
 }
 
-/*
-func TestP4OGZaplockCommands(t *testing.T) {
+func TestP4OGZaplockHelpCommands(t *testing.T) {
 	funcName := getFunctionName()
 	fmt.Println(coloredOutput(colorPurple, funcName))
 
@@ -492,34 +517,16 @@ func TestP4OGZaplockCommands(t *testing.T) {
 	fmt.Println("Output of p4 commands:\n", output)
 }
 
-func TestP4OGZaplockCCommands(t *testing.T) {
-	funcName := getFunctionName()
-	fmt.Println(coloredOutput(colorPurple, funcName))
-
-	p4Test := setupTestEnv(t)        // Setup test environment
-	defer teardownTestEnv(t, p4Test) // Teardown test environment
-
-	commands := []string{
-		"zaplock -c 1 -M",
-	}
-
-	output, err := P4Commands(p4Test, commands, BrokerP4Config)
-	if err != nil {
-		t.Fatalf("Error executing p4 commands: %v", err)
-	}
-
-	fmt.Println("Output of p4 commands:\n", output)
-}
-
 func TestP4OGZaplockCCommandsNONAUTH(t *testing.T) {
 	funcName := getFunctionName()
 	fmt.Println(coloredOutput(colorPurple, funcName))
 
 	p4Test := setupTestEnv(t)        // Setup test environment
 	defer teardownTestEnv(t, p4Test) // Teardown test environment
+	os.Setenv("P4USER", "user2")
 
 	commands := []string{
-		"zaplock -c 1 -M -y",
+		"zaplock -c 10 -E -M -y",
 	}
 	os.Setenv("P4USER", "user2")
 	output, err := P4Commands(p4Test, commands, BrokerP4Config)
@@ -529,4 +536,3 @@ func TestP4OGZaplockCCommandsNONAUTH(t *testing.T) {
 
 	fmt.Println("Output of p4 commands:\n", output)
 }
-*/
