@@ -256,21 +256,6 @@ func setupTestEnv(t *testing.T) *P4Test {
 			}
 		}
 	*/
-	/*
-		users := []string{"user1", "user2", "user3", "user4", "user5"}
-		for _, user := range users {
-			if err := createUser(p4Test, user); err != nil {
-				t.Fatalf("Error creating user %s: %v", user, err)
-			}
-		}
-		/*
-			/// Create group and add users
-			// Create Group and Add Users
-			authorizedUsers := []string{"user1", "user3", "user5"}
-			if err := createGroup(p4Test, "AuthorizedUser-ZapLock", authorizedUsers); err != nil {
-				t.Fatalf("Error creating AuthorizedUser-ZapLock group: %v", err)
-			}
-	*/
 	return p4Test
 
 }
@@ -343,19 +328,6 @@ func startP4broker(p4t *P4Test) error {
 	return nil
 }
 
-/*
-	func teardownTestEnv(t *testing.T, p4t *P4Test) {
-		// Remove the test directory
-		rmCmd := fmt.Sprintf("rm -rf %s", p4t.startDir)
-		fmt.Printf("Cleaning using %s\n", rmCmd)
-		//rmCmd := fmt.Sprintf("echo WOOF WOOF")
-		if err := exec.Command("bash", "-c", rmCmd).Run(); err != nil {
-			t.Logf("Failed to remove test directory: %v", err)
-		} else {
-			fmt.Printf("Test environment cleaned up successfully\n")
-		}
-	}
-*/
 func teardownTestEnv(t *testing.T, p4t *P4Test) {
 	fmt.Println(coloredOutput(colorBlue, "teardownTestEnv"))
 	fmt.Printf("Working Dir %s\n", wd)
@@ -386,13 +358,7 @@ func teardownTestEnv(t *testing.T, p4t *P4Test) {
 			t.Logf("Failed to restore environment variable %s: %v", key, err)
 		}
 	}
-	/*
-		// Restore original environment variables
-		for key, value := range originalEnvVars {
-			if err := os.Setenv(key, value); err != nil {
-				t.Logf("Failed to restore environment variable %s: %v", key, err)
-			}
-		}*/
+
 	// Remove the test directory using verbose removal
 	rmCmd := fmt.Sprintf("rm -rvf %s", p4t.testRoot)
 	//rmCmd := fmt.Sprintf("echo WOOF WOOF")
@@ -449,36 +415,35 @@ func TestP4OGCommands(t *testing.T) {
 	fmt.Println("Output of p4 commands:\n", output)
 }
 
-/*
-	func TestP4OGCommands2(t *testing.T) {
-		funcName := getFunctionName()
-		fmt.Println(coloredOutput(colorPurple, funcName))
+func TestP4OGCommands2(t *testing.T) {
+	funcName := getFunctionName()
+	fmt.Println(coloredOutput(colorPurple, funcName))
 
-		p4Test := setupTestEnv(t)        // Setup test environment
-		defer teardownTestEnv(t, p4Test) // Teardown test environment
+	p4Test := setupTestEnv(t)        // Setup test environment
+	defer teardownTestEnv(t, p4Test) // Teardown test environment
 
-		commands := []string{
-			"info",
-			"configure show allservers",
-			"groups",
-			"users -a",
-			"clients",
-			"depots",
-			"files //...",
-			"changes",
-			"describe 1",
-			//"fstat //...",
-			//"group -o AuthorizedUser-ZapLock",
-		}
-
-		output, err := P4Commands(p4Test, commands, DefaultP4Config)
-		if err != nil {
-			t.Fatalf("Error executing p4 commands: %v", err)
-		}
-
-		fmt.Println("Output of p4 commands:\n", output)
+	commands := []string{
+		"info",
+		"configure show allservers",
+		"groups",
+		"users -a",
+		"clients",
+		"depots",
+		"files //...",
+		"changes",
+		"describe 1",
+		//"fstat //...",
+		//"group -o AuthorizedUser-ZapLock",
 	}
-*/
+
+	output, err := P4Commands(p4Test, commands, DefaultP4Config)
+	if err != nil {
+		t.Fatalf("Error executing p4 commands: %v", err)
+	}
+
+	fmt.Println("Output of p4 commands:\n", output)
+}
+
 func TestP4OGBrokerCommands(t *testing.T) {
 	funcName := getFunctionName()
 	fmt.Println(coloredOutput(colorPurple, funcName))
