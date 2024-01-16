@@ -235,12 +235,12 @@ func setupTestEnv(t *testing.T) *P4Test {
 	}
 	filesToCreate := map[string]FileDetails{
 		"eLOCKtextfile1.txt":   {FileType: "text+lmx", UserName: "user1"},
-		"mLOCKbinaryfile1.bin": {FileType: "binary", UserName: "user2"},
-		"mLOCKtextfile2.txt":   {FileType: "text", UserName: "user3"},
+		"mLOCKbinaryfile1.bin": {FileType: "binary", UserName: "user1"},
+		"mLOCKtextfile2.txt":   {FileType: "text", UserName: "user5"},
 		"eLOCKtextfile3.txt":   {FileType: "text+l", UserName: "user5"},
 		"eLOCKbinaryfile2.bin": {FileType: "binary+klm", UserName: "user5"},
 	}
-
+	////////////////////user2 is not in the group
 	/*
 		filesToCreate := map[string]string{
 			"textfile1.txt":   "text+lmx",
@@ -457,7 +457,7 @@ func TestP4OGCommands(t *testing.T) {
 		"changes",
 		"describe 1",
 		//"fstat //...",
-		//"group -o AuthorizedUser-ZapLock",
+		"group -o AuthorizedUser-ZapLock",
 	}
 
 	output, err := P4Commands(p4Test, commands, DefaultP4Config)
@@ -523,12 +523,65 @@ func TestP4OGZaplockCCommandsNONAUTH(t *testing.T) {
 
 	p4Test := setupTestEnv(t)        // Setup test environment
 	defer teardownTestEnv(t, p4Test) // Teardown test environment
-	os.Setenv("P4USER", "user2")
 
 	commands := []string{
-		"zaplock -c 10 -E -M -y",
+		"zaplock -c 10 -L -M -y",
 	}
 	os.Setenv("P4USER", "user2")
+	output, err := P4Commands(p4Test, commands, BrokerP4Config)
+	if err != nil {
+		t.Fatalf("Error executing p4 commands: %v", err)
+	}
+
+	fmt.Println("Output of p4 commands:\n", output)
+}
+func TestP4OGZaplockCCommandsAUTH(t *testing.T) {
+	funcName := getFunctionName()
+	fmt.Println(coloredOutput(colorPurple, funcName))
+
+	p4Test := setupTestEnv(t)        // Setup test environment
+	defer teardownTestEnv(t, p4Test) // Teardown test environment
+
+	commands := []string{
+		"zaplock -c 10 -L -M -y",
+	}
+	os.Setenv("P4USER", "user3")
+	output, err := P4Commands(p4Test, commands, BrokerP4Config)
+	if err != nil {
+		t.Fatalf("Error executing p4 commands: %v", err)
+	}
+
+	fmt.Println("Output of p4 commands:\n", output)
+}
+func TestP4OGZaplockCCommandsAUTHargL(t *testing.T) {
+	funcName := getFunctionName()
+	fmt.Println(coloredOutput(colorPurple, funcName))
+
+	p4Test := setupTestEnv(t)        // Setup test environment
+	defer teardownTestEnv(t, p4Test) // Teardown test environment
+
+	commands := []string{
+		"zaplock -c 10 -L -y",
+	}
+	os.Setenv("P4USER", "user3")
+	output, err := P4Commands(p4Test, commands, BrokerP4Config)
+	if err != nil {
+		t.Fatalf("Error executing p4 commands: %v", err)
+	}
+
+	fmt.Println("Output of p4 commands:\n", output)
+}
+func TestP4OGZaplockCCommandsAUTHargM(t *testing.T) {
+	funcName := getFunctionName()
+	fmt.Println(coloredOutput(colorPurple, funcName))
+
+	p4Test := setupTestEnv(t)        // Setup test environment
+	defer teardownTestEnv(t, p4Test) // Teardown test environment
+
+	commands := []string{
+		"zaplock -c 10 -M -y",
+	}
+	os.Setenv("P4USER", "user3")
 	output, err := P4Commands(p4Test, commands, BrokerP4Config)
 	if err != nil {
 		t.Fatalf("Error executing p4 commands: %v", err)
