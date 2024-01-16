@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
@@ -121,4 +122,25 @@ func setP4Config(configType P4ConfigType, p4Test *P4Test) {
 		// ... custom settings ...
 	}
 	// Note: Add more cases as needed for different configurations
+}
+func logEnvironmentVariables(title string) {
+	if BrokerDebug {
+		fmt.Printf("\n--- %s ---\n", title)
+		for _, env := range os.Environ() {
+			fmt.Println(env)
+		}
+	}
+}
+func isDirectoryEmpty(dir string) (bool, error) {
+	f, err := os.Open(dir)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+
+	_, err = f.Readdirnames(1) // Or Readdir(1)
+	if err == io.EOF {
+		return true, nil
+	}
+	return false, err
 }

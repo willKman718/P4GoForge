@@ -49,28 +49,60 @@ var binDir string
 var p4payloadDir string
 var checkPointfile string
 var newPath string
+var originalEnvVars map[string]string
+var wd string
 
 func init() {
+	fmt.Println(coloredOutput(colorBlue, "THIS IS SPARTA"))
 	// Initialize global variables here
-	wd, err := os.Getwd()
+	var err error
+
+	wd, err = os.Getwd()
+
 	if err != nil {
 		fmt.Println("Error getting current working directory:", err)
 		os.Exit(1)
 	}
-
-	startDir = filepath.Join(wd, "tmp")
-	binDir = filepath.Join(wd, "bin")
-	p4payloadDir = filepath.Join(wd, "p4payload")
-	checkPointfile = "zaplock-payload.ckp.8"
-
-	originalPath := os.Getenv("PATH")
-	newPath := fmt.Sprintf("%s:%s", originalPath, binDir)
-	os.Setenv("PATH", newPath)
-
-	if err := checkBinaries(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+	fmt.Printf("wd = %s\n", wd)
+	// Save the current environment variables
+	originalEnvVars = make(map[string]string)
+	for _, env := range os.Environ() {
+		pair := strings.SplitN(env, "=", 2)
+		if len(pair) == 2 {
+			originalEnvVars[pair[0]] = pair[1]
+		}
 	}
+	/*
+		fmt.Println(coloredOutput(colorBlue, "THIS IS SPARTA"))
+		// Save the current environment variables
+		originalEnvVars = make(map[string]string)
+		for _, env := range os.Environ() {
+			pair := strings.SplitN(env, "=", 2)
+			if len(pair) == 2 {
+				originalEnvVars[pair[0]] = pair[1]
+			}
+		}
+		// Initialize global variables here
+		wd, err := os.Getwd()
+		if err != nil {
+			fmt.Println("Error getting current working directory:", err)
+			os.Exit(1)
+		}
+
+		startDir = filepath.Join(wd, "tmp")
+		binDir = filepath.Join(wd, "bin")
+		p4payloadDir = filepath.Join(wd, "p4payload")
+		checkPointfile = "zaplock-payload.ckp.8"
+
+		originalPath := os.Getenv("PATH")
+		newPath := fmt.Sprintf("%s:%s", originalPath, binDir)
+		os.Setenv("PATH", newPath)
+
+		if err := checkBinaries(); err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+	*/
 }
 
 type P4Test struct {
@@ -97,7 +129,32 @@ type P4Test struct {
 	p4brokerProcess    *os.Process
 }
 
-func MakeP4Test(startDir string) *P4Test {
+func makeP4Test(startDir string) *P4Test {
+	fmt.Println(coloredOutput(colorBlue, "makeP4Test"))
+	/*
+		// Save the current environment variables
+		originalEnvVars = make(map[string]string)
+		for _, env := range os.Environ() {
+			pair := strings.SplitN(env, "=", 2)
+			if len(pair) == 2 {
+				originalEnvVars[pair[0]] = pair[1]
+			}
+		}
+	*/
+	startDir = filepath.Join(wd, "tmp")
+	binDir = filepath.Join(wd, "bin")
+	p4payloadDir = filepath.Join(wd, "p4payload")
+	checkPointfile = "zaplock-payload.ckp.8"
+
+	originalPath := os.Getenv("PATH")
+	newPath := fmt.Sprintf("%s:%s", originalPath, binDir)
+	os.Setenv("PATH", newPath)
+
+	if err := checkBinaries(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
 	os.Setenv("P4CONFIG", ".p4config")
 	p4t := &P4Test{
 		startDir:     startDir,
@@ -120,15 +177,16 @@ func MakeP4Test(startDir string) *P4Test {
 	p4t.p4broker = filepath.Join(p4t.binDir, "p4broker")
 	p4t.bport = fmt.Sprintf("rsh:%s -c %s -q", p4t.p4broker, p4t.brokerRoot+"/p4broker.cfg")
 	p4t.port = fmt.Sprintf("rsh:%s -r %s -L %s", p4t.p4d, p4t.serverRoot, p4t.serverLog)
-	os.Chdir(p4t.clientRoot)
+	//os.Chdir(p4t.clientRoot)
 
 	return p4t
 }
 
 // setupTestEnv initializes the Perforce server environment for testing.
 func setupTestEnv(t *testing.T) *P4Test {
+	fmt.Println(coloredOutput(colorBlue, "setupTestEnv"))
 	// Create the P4Test instance first
-	p4Test := MakeP4Test(startDir)
+	p4Test := makeP4Test(startDir)
 
 	// Now set the environment variables using p4Test
 
@@ -141,6 +199,14 @@ func setupTestEnv(t *testing.T) *P4Test {
 	t.Log("p4d started successfully")
 
 	p4Test.rshp4dCommand = fmt.Sprintf(`"rsh:%s -r %s -L %s -d -q"`, p4Test.p4d, p4Test.serverRoot, p4Test.serverLog)
+
+	if loadBroker {
+		if err := setupP4Broker(p4Test); err != nil {
+			t.Fatalf("Broker setup failed: %v", err)
+		}
+		t.Log("p4broker started successfully")
+	}
+	os.Setenv("P4USER", "perforce")
 	////// CREATE USERS
 	// Create Users
 
@@ -161,6 +227,35 @@ func setupTestEnv(t *testing.T) *P4Test {
 	if err := createGroup(p4Test, "AuthorizedUser-ZapLock", authorizedUsers); err != nil {
 		t.Fatalf("Error creating group AuthorizedUser-ZapLock: %v", err)
 	}
+	filesToCreate := map[string]string{
+		"textfile1.txt":   "text+lmx",
+		"binaryfile1.bin": "binary",
+		"textfile2.txt":   "text",
+		"textfile3.txt":   "text+l",
+		"binaryfile2.bin": "binary+klm",
+	}
+
+	if err := createDepotFiles(p4Test, "user1", filesToCreate); err != nil {
+		t.Fatalf("Error creating and adding files to depot: %v", err)
+	}
+	//// SYNC workspaces
+
+	for _, user := range users {
+		if err := syncUserWorkspace(p4Test, user); err != nil {
+			t.Fatalf("Error syncing workspace for user %s: %v", user, err)
+		}
+	}
+
+	/*
+		filesToLock := []string{"textfile1.txt", "textfile2.txt"}
+
+		usersToLockFiles := []string{"user2", "user4"}
+		for _, user := range usersToLockFiles {
+			if err := checkoutAndLockFiles(p4Test, user, filesToLock); err != nil {
+				t.Fatalf("Error checking out and locking files for user %s: %v", user, err)
+			}
+		}
+	*/
 	/*
 		users := []string{"user1", "user2", "user3", "user4", "user5"}
 		for _, user := range users {
@@ -176,17 +271,12 @@ func setupTestEnv(t *testing.T) *P4Test {
 				t.Fatalf("Error creating AuthorizedUser-ZapLock group: %v", err)
 			}
 	*/
-	if loadBroker {
-		if err := setupP4Broker(p4Test); err != nil {
-			t.Fatalf("Broker setup failed: %v", err)
-		}
-		t.Log("p4broker started successfully")
-	}
 	return p4Test
 
 }
 
 func startP4dDaemon(p4t *P4Test) error {
+	fmt.Println(coloredOutput(colorBlue, "startP4dDaemon"))
 	if loadCheckPoint {
 		// Load checkpoint
 		output, err := P4dCommand(true, "-r", p4t.serverRoot, "-L", p4t.serverLog, "-jr", p4t.checkPointfile)
@@ -215,6 +305,7 @@ func startP4dDaemon(p4t *P4Test) error {
 }
 
 func startP4broker(p4t *P4Test) error {
+	fmt.Println(coloredOutput(colorBlue, "startP4broker"))
 	// Construct the command
 	rshCommand := fmt.Sprintf("%s -c %s -d", p4t.p4broker, p4t.brokerRoot+"/p4broker.cfg")
 
@@ -252,21 +343,83 @@ func startP4broker(p4t *P4Test) error {
 	return nil
 }
 
+/*
+	func teardownTestEnv(t *testing.T, p4t *P4Test) {
+		// Remove the test directory
+		rmCmd := fmt.Sprintf("rm -rf %s", p4t.startDir)
+		fmt.Printf("Cleaning using %s\n", rmCmd)
+		//rmCmd := fmt.Sprintf("echo WOOF WOOF")
+		if err := exec.Command("bash", "-c", rmCmd).Run(); err != nil {
+			t.Logf("Failed to remove test directory: %v", err)
+		} else {
+			fmt.Printf("Test environment cleaned up successfully\n")
+		}
+	}
+*/
 func teardownTestEnv(t *testing.T, p4t *P4Test) {
-	// Remove the test directory
-	//rmCmd := fmt.Sprintf("rm -rf %s*", p4t.testRoot)
-	rmCmd := fmt.Sprintf("echo WOOF WOOF")
+	fmt.Println(coloredOutput(colorBlue, "teardownTestEnv"))
+	fmt.Printf("Working Dir %s\n", wd)
+	//os.Chdir(wd)
+
+	// Forcefully terminate the p4d process if it exists
+	if p4t.p4dProcess != nil {
+		if err := p4t.p4dProcess.Kill(); err != nil {
+			t.Logf("Failed to kill p4d process: %v", err)
+		} else {
+			t.Log("p4d process terminated successfully")
+		}
+	}
+
+	// Forcefully terminate the p4broker process if it exists
+	if p4t.p4brokerProcess != nil {
+		if err := p4t.p4brokerProcess.Kill(); err != nil {
+			t.Logf("Failed to kill p4broker process: %v", err)
+		} else {
+			t.Log("p4broker process terminated successfully")
+		}
+	}
+	// Reset the entire environment
+	os.Clearenv()
+	for key, value := range originalEnvVars {
+		err := os.Setenv(key, value)
+		if err != nil {
+			t.Logf("Failed to restore environment variable %s: %v", key, err)
+		}
+	}
+	/*
+		// Restore original environment variables
+		for key, value := range originalEnvVars {
+			if err := os.Setenv(key, value); err != nil {
+				t.Logf("Failed to restore environment variable %s: %v", key, err)
+			}
+		}*/
+	// Remove the test directory using verbose removal
+	rmCmd := fmt.Sprintf("rm -rvf %s", p4t.testRoot)
+	//rmCmd := fmt.Sprintf("echo WOOF WOOF")
+	fmt.Printf("Cleaning using %s\n", rmCmd)
 	if err := exec.Command("bash", "-c", rmCmd).Run(); err != nil {
 		t.Logf("Failed to remove test directory: %v", err)
 	} else {
-		fmt.Printf("Test environment cleaned up successfully\n")
+		t.Log("Test environment cleaned up successfully")
 	}
+	isEmpty, err := isDirectoryEmpty(p4t.testRoot)
+	if err != nil {
+		t.Logf("Error checking if test directory is empty: %v", err)
+	} else if isEmpty {
+		t.Log("Test directory is empty")
+	} else {
+		t.Log("Test directory is not empty")
+	}
+	logEnvironmentVariables("Environment Variables After Teardown")
 }
+
 func buildp4dTestEnv(t *testing.T, p4t *P4Test) {
 	fmt.Printf("Building p4d depots and suchs\n")
 	// The needful commands
 }
 func TestP4OGCommands(t *testing.T) {
+	logEnvironmentVariables("Environment Variables Before Setup")
+
 	funcName := getFunctionName()
 	fmt.Println(coloredOutput(colorPurple, funcName))
 
@@ -279,17 +432,53 @@ func TestP4OGCommands(t *testing.T) {
 		"groups",
 		"users -a",
 		"clients",
-		"group -o AuthorizedUser-ZapLock",
+		"depots",
+		"files //...",
+		"changes",
+		"describe 1",
+		//"fstat //...",
+		//"group -o AuthorizedUser-ZapLock",
 	}
 
 	output, err := P4Commands(p4Test, commands, DefaultP4Config)
 	if err != nil {
 		t.Fatalf("Error executing p4 commands: %v", err)
 	}
+	logEnvironmentVariables("Environment Variables During Setup")
 
 	fmt.Println("Output of p4 commands:\n", output)
 }
 
+/*
+	func TestP4OGCommands2(t *testing.T) {
+		funcName := getFunctionName()
+		fmt.Println(coloredOutput(colorPurple, funcName))
+
+		p4Test := setupTestEnv(t)        // Setup test environment
+		defer teardownTestEnv(t, p4Test) // Teardown test environment
+
+		commands := []string{
+			"info",
+			"configure show allservers",
+			"groups",
+			"users -a",
+			"clients",
+			"depots",
+			"files //...",
+			"changes",
+			"describe 1",
+			//"fstat //...",
+			//"group -o AuthorizedUser-ZapLock",
+		}
+
+		output, err := P4Commands(p4Test, commands, DefaultP4Config)
+		if err != nil {
+			t.Fatalf("Error executing p4 commands: %v", err)
+		}
+
+		fmt.Println("Output of p4 commands:\n", output)
+	}
+*/
 func TestP4OGBrokerCommands(t *testing.T) {
 	funcName := getFunctionName()
 	fmt.Println(coloredOutput(colorPurple, funcName))
@@ -302,8 +491,12 @@ func TestP4OGBrokerCommands(t *testing.T) {
 		"configure show allservers",
 		"groups",
 		"users -a",
-		"p4 clients",
-		"p4 client -o user1_ws",
+		"clients",
+		"depots",
+		"files //...",
+		"changes",
+		"fstat //...",
+		//"group -o AuthorizedUser-ZapLock",
 	}
 
 	output, err := P4Commands(p4Test, commands, BrokerP4Config)
@@ -313,6 +506,8 @@ func TestP4OGBrokerCommands(t *testing.T) {
 
 	fmt.Println("Output of p4 commands:\n", output)
 }
+
+/*
 func TestP4OGZaplockCommands(t *testing.T) {
 	funcName := getFunctionName()
 	fmt.Println(coloredOutput(colorPurple, funcName))
@@ -331,6 +526,7 @@ func TestP4OGZaplockCommands(t *testing.T) {
 
 	fmt.Println("Output of p4 commands:\n", output)
 }
+
 func TestP4OGZaplockCCommands(t *testing.T) {
 	funcName := getFunctionName()
 	fmt.Println(coloredOutput(colorPurple, funcName))
@@ -349,3 +545,23 @@ func TestP4OGZaplockCCommands(t *testing.T) {
 
 	fmt.Println("Output of p4 commands:\n", output)
 }
+
+func TestP4OGZaplockCCommandsNONAUTH(t *testing.T) {
+	funcName := getFunctionName()
+	fmt.Println(coloredOutput(colorPurple, funcName))
+
+	p4Test := setupTestEnv(t)        // Setup test environment
+	defer teardownTestEnv(t, p4Test) // Teardown test environment
+
+	commands := []string{
+		"zaplock -c 1 -M -y",
+	}
+	os.Setenv("P4USER", "user2")
+	output, err := P4Commands(p4Test, commands, BrokerP4Config)
+	if err != nil {
+		t.Fatalf("Error executing p4 commands: %v", err)
+	}
+
+	fmt.Println("Output of p4 commands:\n", output)
+}
+*/

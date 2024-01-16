@@ -90,12 +90,62 @@ func P4dCommand(useFullPath bool, args ...string) (string, error) {
 		return strings.TrimSpace(string(output)), err
 	}
 }
+
+func createUser(p4Test *P4Test, username string) error {
+	fmt.Println("Creating user:", username)
+
+	// Define the path for the temporary user specification file
+	tempUserSpecFile := filepath.Join(p4Test.clientRoot, "temp_user_spec.txt")
+
+	// Construct the command to execute 'p4 user -o' and redirect output to tempUserSpecFile
+	cmdString := fmt.Sprintf("p4 user -o %s > %s", username, tempUserSpecFile)
+	cmd := exec.Command("bash", "-c", cmdString)
+
+	// Execute the command
+	if _, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to execute 'p4 user -o': %v", err)
+	}
+
+	// Read contents of the tempUserSpecFile
+	userSpecData, err := os.ReadFile(tempUserSpecFile)
+	if err != nil {
+		return fmt.Errorf("failed to read user spec file: %v", err)
+	}
+
+	// Modify the user specification as needed
+	userSpec := string(userSpecData)
+	//userSpec = strings.Replace(userSpec, "Email:", "Email: email@generated_test", 1)
+	//userSpec = strings.Replace(userSpec, "User:", "User: "+username, -1)
+
+	// Rewrite the modified user specification back to the temporary file
+	if err := os.WriteFile(tempUserSpecFile, []byte(userSpec), 0644); err != nil {
+		return err
+	}
+
+	// Create a command to execute 'p4 user -f -i' using the modified tempUserSpecFile
+	cmdString = fmt.Sprintf("p4 user -f -i < %s", tempUserSpecFile)
+	cmd = exec.Command("bash", "-c", cmdString)
+
+	// Execute the command
+	if _, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create user with 'p4 user -f -i': %v", err)
+	}
+
+	// Clean up temporary file
+	if err := os.Remove(tempUserSpecFile); err != nil {
+		return err
+	}
+	fmt.Println("User created:", username)
+	return nil
+}
+
 func createWorkspace(p4Test *P4Test, username string) error {
 	userDir := filepath.Join(p4Test.clientRoot, username)
 	workspaceName := username + "_ws"
 	tempSpecFile := filepath.Join(p4Test.clientRoot, "temp_workspace_spec.txt")
 
 	// 1. Create user directory
+	//if err := os.MkdirAll(userDir, os.ModePerm); err != nil {
 	if err := os.MkdirAll(userDir, os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create user directory: %v", err)
 	}
@@ -163,54 +213,6 @@ func createWorkspace(p4Test *P4Test, username string) error {
 	return nil
 }
 
-func createUser(p4Test *P4Test, username string) error {
-	fmt.Println("Creating user:", username)
-
-	// Define the path for the temporary user specification file
-	tempUserSpecFile := filepath.Join(p4Test.clientRoot, "temp_user_spec.txt")
-
-	// Construct the command to execute 'p4 user -o' and redirect output to tempUserSpecFile
-	cmdString := fmt.Sprintf("p4 user -o %s > %s", username, tempUserSpecFile)
-	cmd := exec.Command("bash", "-c", cmdString)
-
-	// Execute the command
-	if _, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to execute 'p4 user -o': %v", err)
-	}
-
-	// Read contents of the tempUserSpecFile
-	userSpecData, err := os.ReadFile(tempUserSpecFile)
-	if err != nil {
-		return fmt.Errorf("failed to read user spec file: %v", err)
-	}
-
-	// Modify the user specification as needed
-	userSpec := string(userSpecData)
-	//userSpec = strings.Replace(userSpec, "Email:", "Email: email@generated_test", 1)
-	//userSpec = strings.Replace(userSpec, "User:", "User: "+username, -1)
-
-	// Rewrite the modified user specification back to the temporary file
-	if err := os.WriteFile(tempUserSpecFile, []byte(userSpec), 0644); err != nil {
-		return err
-	}
-
-	// Create a command to execute 'p4 user -f -i' using the modified tempUserSpecFile
-	cmdString = fmt.Sprintf("p4 user -f -i < %s", tempUserSpecFile)
-	cmd = exec.Command("bash", "-c", cmdString)
-
-	// Execute the command
-	if _, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to create user with 'p4 user -f -i': %v", err)
-	}
-
-	// Clean up temporary file
-	if err := os.Remove(tempUserSpecFile); err != nil {
-		return err
-	}
-	fmt.Println("User created:", username)
-	return nil
-}
-
 func createGroup(p4Test *P4Test, groupName string, users []string) error {
 	tempGroupSpecFile := filepath.Join(p4Test.clientRoot, "temp_group_spec.txt")
 
@@ -264,5 +266,87 @@ func createGroup(p4Test *P4Test, groupName string, users []string) error {
 		return err
 	}
 	fmt.Println("Group created:", groupName)
+	return nil
+}
+
+func createDepotFiles(p4Test *P4Test, username string, files map[string]string) error {
+	workspaceName := username + "_ws"
+	clientRoot := filepath.Join(p4Test.clientRoot, username)
+	os.Setenv("P4USER", username)
+
+	// Ensure the current workspace is set correctly
+	cmd := exec.Command("p4", "set", "P4CLIENT="+workspaceName)
+	if _, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to set P4CLIENT: %v", err)
+	}
+
+	// Create and add files with specified types
+	for fileName, fileType := range files {
+		filePath := filepath.Join(clientRoot, fileName)
+		if err := os.WriteFile(filePath, []byte("Initial content"), 0777); err != nil {
+			return fmt.Errorf("failed to create file: %v", err)
+		}
+
+		// Add file to Perforce with specified file type
+		cmd = exec.Command("p4", "add", "-t", fileType, filePath)
+		if _, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to add file to Perforce: %v", err)
+		}
+	}
+
+	// Submit the files
+	submitDesc := "Initial submit of files with specific types"
+	cmd = exec.Command("p4", "submit", "-d", submitDesc)
+	if _, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to submit files: %v", err)
+	}
+
+	fmt.Println("Files with specific types submitted to the depot")
+	return nil
+}
+func checkoutAndLockFiles(p4Test *P4Test, username string, filesToLock []string) error {
+	workspaceName := username + "_ws"
+	//clientRoot := filepath.Join(p4Test.clientRoot, username)
+
+	// Ensure the current workspace is set correctly
+	cmd := exec.Command("p4", "set", "P4CLIENT="+workspaceName)
+	if _, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to set P4CLIENT for user %s: %v", username, err)
+	}
+
+	// Change to the user directory
+	//os.Chdir(clientRoot)
+
+	// Checkout and lock the files
+	for _, file := range filesToLock {
+		// Edit (check out) the file
+		cmd = exec.Command("p4", "edit", file)
+		if _, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to check out file %s for user %s: %v", file, username, err)
+		}
+
+		// Lock the file
+		cmd = exec.Command("p4", "lock", file)
+		if _, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to lock file %s for user %s: %v", file, username, err)
+		}
+	}
+
+	fmt.Printf("User %s checked out and locked files: %v\n", username, filesToLock)
+	return nil
+}
+func syncUserWorkspace(p4Test *P4Test, username string) error {
+	workspaceName := username + "_ws"
+
+	// Set the P4CLIENT environment variable to the user's workspace
+	os.Setenv("P4CLIENT", workspaceName)
+	//os.Setenv("P4USER", username)
+	// Sync the workspace
+	cmd := exec.Command("p4", "sync")
+	if _, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to sync workspace for user %s: %v", username, err)
+	}
+
+	fmt.Printf("Workspace synced for user %s\n", username)
 	return nil
 }
