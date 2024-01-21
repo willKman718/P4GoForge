@@ -230,15 +230,19 @@ func setupTestEnv(t *testing.T) *P4Test {
 
 	//TODO move this probaly
 	type FileDetails struct {
-		FileType string
-		UserName string
+		FileType  string
+		UserName  string
+		MLockfile bool
 	}
 	filesToCreate := map[string]FileDetails{
-		"eLOCKtextfile1.txt":   {FileType: "text+lmx", UserName: "user1"},
-		"mLOCKbinaryfile1.bin": {FileType: "binary", UserName: "user1"},
-		"mLOCKtextfile2.txt":   {FileType: "text", UserName: "user5"},
-		"eLOCKtextfile3.txt":   {FileType: "text+l", UserName: "user5"},
-		"eLOCKbinaryfile2.bin": {FileType: "binary+klm", UserName: "user5"},
+		"eLOCKtextfile1.txt":   {FileType: "text+lmx", UserName: "user1", MLockfile: false},
+		"eLOCKtextfile2.txt":   {FileType: "text+lm", UserName: "user1", MLockfile: false},
+		"mLOCKbinaryfile1.bin": {FileType: "binary", UserName: "user1", MLockfile: true},
+		"mLOCKtextfile2.txt":   {FileType: "text", UserName: "user5", MLockfile: true},
+		"mLOCKtextfile3.txt":   {FileType: "text+ml", UserName: "user5", MLockfile: true},
+		"eLOCKtextfile3.txt":   {FileType: "text+l", UserName: "user5", MLockfile: false},
+		"eLOCKbinaryfile2.bin": {FileType: "binary+klm", UserName: "user5", MLockfile: true},
+		"eLOCKbinaryfile3.bin": {FileType: "binary+ml", UserName: "user5", MLockfile: true},
 	}
 	////////////////////user2 is not in the group
 	/*
@@ -279,7 +283,7 @@ func setupTestEnv(t *testing.T) *P4Test {
 			if details.UserName == user {
 				fmt.Printf("Checking out file: %s, User: %s, Changelist: %s\n", fileName, user, changelistNumber)
 				// Uncomment below line to actually execute the function after dry run
-				if err := checkoutFilesToChangelist(p4Test, user, fileName, changelistNumber); err != nil {
+				if err := checkoutFilesToChangelist(p4Test, user, fileName, changelistNumber, details.MLockfile); err != nil {
 					t.Fatalf("Error checking out file %s to changelist %s by user %s: %v", fileName, changelistNumber, user, err)
 				}
 			}
@@ -525,7 +529,7 @@ func TestP4OGZaplockCCommandsNONAUTH(t *testing.T) {
 	defer teardownTestEnv(t, p4Test) // Teardown test environment
 
 	commands := []string{
-		"zaplock -c 10 -L -M -y",
+		"zaplock -c 9 -L -M -y",
 	}
 	os.Setenv("P4USER", "user2")
 	output, err := P4Commands(p4Test, commands, BrokerP4Config)
@@ -543,7 +547,7 @@ func TestP4OGZaplockCCommandsAUTH(t *testing.T) {
 	defer teardownTestEnv(t, p4Test) // Teardown test environment
 
 	commands := []string{
-		"zaplock -c 10 -L -M -y",
+		"zaplock -c 9 -L -M -y",
 	}
 	os.Setenv("P4USER", "user3")
 	output, err := P4Commands(p4Test, commands, BrokerP4Config)
@@ -561,7 +565,7 @@ func TestP4OGZaplockCCommandsAUTHargL(t *testing.T) {
 	defer teardownTestEnv(t, p4Test) // Teardown test environment
 
 	commands := []string{
-		"zaplock -c 10 -L -y",
+		"zaplock -c 9 -L -y",
 	}
 	os.Setenv("P4USER", "user3")
 	output, err := P4Commands(p4Test, commands, BrokerP4Config)
@@ -579,12 +583,37 @@ func TestP4OGZaplockCCommandsAUTHargM(t *testing.T) {
 	defer teardownTestEnv(t, p4Test) // Teardown test environment
 
 	commands := []string{
-		"zaplock -c 10 -M -y",
+		"zaplock -c 9 -M -y",
 	}
 	os.Setenv("P4USER", "user3")
 	output, err := P4Commands(p4Test, commands, BrokerP4Config)
 	if err != nil {
 		t.Fatalf("Error executing p4 commands: %v", err)
+	}
+
+	fmt.Println("Output of p4 commands:\n", output)
+}
+func TestP4OGZaplockCCommandsAUTHwrongauth(t *testing.T) {
+	funcName := getFunctionName()
+	fmt.Println(coloredOutput(colorPurple, funcName))
+
+	p4Test := setupTestEnv(t)        // Setup test environment
+	defer teardownTestEnv(t, p4Test) // Teardown test environment
+
+	commands := []string{
+		"zaplock -c 9 -L -M -y 1234",
+	}
+	os.Setenv("P4USER", "user3")
+	output, err := P4Commands(p4Test, commands, BrokerP4Config)
+
+	// Check if the error is the expected one
+	expectedError := "Incorrect or expired confirmation code"
+	if err != nil && strings.Contains(err.Error(), expectedError) {
+		fmt.Println("Received the expected error:", err)
+	} else if err != nil {
+		t.Fatalf("Unexpected error executing p4 commands: %v", err)
+	} else {
+		t.Fatalf("Expected an error, but none occurred")
 	}
 
 	fmt.Println("Output of p4 commands:\n", output)

@@ -437,6 +437,38 @@ func p4LockFile(file string) error {
 	}
 	return nil
 }
+func checkoutFilesToChangelist(p4Test *P4Test, username string, fileName string, changelistNumber string, shouldLock bool) error {
+	// Ensure the P4CLIENT and P4USER environment variables are set
+	workspaceName := username + "_ws"
+	os.Setenv("P4CLIENT", workspaceName)
+	os.Setenv("P4USER", username)
+	clientRootFile := filepath.Join(p4Test.clientRoot, username, fileName)
+
+	// Construct the command string for checking out the file
+	cmdString := fmt.Sprintf("p4 edit -c %s %s", changelistNumber, clientRootFile)
+	fmt.Println("Executing command:", cmdString)
+
+	// Execute the checkout command
+	cmd := exec.Command("bash", "-c", cmdString)
+	if _, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to check out file %s for user %s: %v", fileName, username, err)
+	}
+
+	// Check if the file needs to be locked
+	if shouldLock {
+		// Lock the file
+		lockCmdString := fmt.Sprintf("p4 lock %s", clientRootFile)
+		fmt.Println("Executing lock command:", lockCmdString)
+		cmd = exec.Command("bash", "-c", lockCmdString)
+		if _, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to lock file %s: %v", fileName, err)
+		}
+	}
+
+	return nil
+}
+
+/*
 func checkoutFilesToChangelist(p4Test *P4Test, username string, fileName string, changelistNumber string) error {
 	// Ensure the P4CLIENT and P4USER environment variables are set
 	workspaceName := username + "_ws"
@@ -463,3 +495,4 @@ func checkoutFilesToChangelist(p4Test *P4Test, username string, fileName string,
 	}
 	return nil
 }
+*/
